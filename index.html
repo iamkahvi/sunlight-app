@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sunshine Hours - Past 30 Days</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            max-width: 600px;
+            margin: 20px auto;
+            padding: 10px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #ccc;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f4f4f4;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>Sunshine Hours (Past 30 Days)</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Sunshine (Hours)</th>
+            </tr>
+        </thead>
+        <tbody id="data-body">
+            <tr><td colspan="2">Loading API data...</td></tr>
+        </tbody>
+    </table>
+
+    <script>
+        const lat = 48.4284;
+        const lon = -123.3656;
+        const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=sunshine_duration&past_days=30&forecast_days=0&timezone=America%2FLos_Angeles`;
+
+        fetch(url)
+            .then(response => response.json())
+            .then(data => {
+                const tbody = document.getElementById('data-body');
+                tbody.innerHTML = ''; 
+
+                const dates = data.daily.time;
+                const durations = data.daily.sunshine_duration;
+
+                for (let i = 0; i < dates.length; i++) {
+                    const tr = document.createElement('tr');
+                    
+                    const tdDate = document.createElement('td');
+                    tdDate.textContent = dates[i];
+                    
+                    const tdHours = document.createElement('td');
+                    const seconds = durations[i];
+                    
+                    if (seconds !== null) {
+                        const hours = (seconds / 3600).toFixed(2);
+                        tdHours.textContent = hours;
+                    } else {
+                        tdHours.textContent = "No data";
+                    }
+
+                    tr.appendChild(tdDate);
+                    tr.appendChild(tdHours);
+                    tbody.appendChild(tr);
+                }
+            })
+            .catch(error => {
+                document.getElementById('data-body').innerHTML = '<tr><td colspan="2" style="color:red;">Error fetching data. Check console.</td></tr>';
+                console.error('API Fetch Error:', error);
+            });
+    </script>
+</body>
+</html>
