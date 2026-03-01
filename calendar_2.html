@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sunshine Calendar - 30 Day History & 7 Day Forecast</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 10px;
+            background-color: #f9f9f9;
+        }
+        h2 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 6px;
+        }
+        .month-heading {
+            text-align: center;
+            color: #555;
+            margin: 0 0 16px;
+            font-weight: 600;
+        }
+        .calendar-header {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 10px;
+            margin-bottom: 10px;
+            text-align: center;
+            font-weight: bold;
+            color: #555;
+        }
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 10px;
+        }
+        .day-cell {
+            position: relative;
+            aspect-ratio: 1;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.4);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .empty-cell {
+            background-color: transparent;
+            box-shadow: none;
+        }
+        .forecast-cell {
+            border: 2px dashed #444;
+            background-image: repeating-linear-gradient(
+                45deg,
+                transparent,
+                transparent 10px,
+                rgba(255, 255, 255, 0.2) 10px,
+                rgba(255, 255, 255, 0.2) 20px
+            );
+        }
+        .date-label {
+            position: absolute;
+            top: 5px;
+            left: 5px;
+            font-size: 12px;
+            opacity: 0.9;
+        }
+        .hours-label {
+            font-size: 1.2rem;
+        }
+        .forecast-label {
+            position: absolute;
+            bottom: 5px;
+            font-size: 10px;
+            text-transform: uppercase;
+            opacity: 0.8;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>Victoria Sunshine Hours (30 Days + 7 Day Forecast)</h2>
+    <div class="month-heading" id="month-heading"></div>
+    
+    <div class="calendar-header">
+        <div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div>
+    </div>
+    <div class="calendar-grid" id="calendar">
+        </div>
+
+    <script>
+        const lat = 48.4284;
+        const lon = -123.3656;
+        const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=sunshine_duration&past_days=30&forecast_days=7&timezone=America%2FLos_Angeles`;
+
+        function getColorForHours(hours) {
+            const maxExpectedHours = 12;
+            const normalized = Math.min(Math.max(hours / maxExpectedHours, 0), 1);
+            const hue = 210 - (normalized * 180); 
+            const saturation = 40 + (normalized * 50);
+            return `hsl(${hue}, ${saturation}%, 55%)`;
+        }
+
+        fetch(url)
+            .then(response => response.json())
+            .then(data => {
+                const calendar = document.getElementById('calendar');
+                const dates = data.daily.time;
+                const durations = data.daily.sunshine_duration;
+
+                if (dates.length === 0) return;
+
+                const monthHeading = document.getElementById('month-heading');
+                const first = new Date(`${dates[0]}T00:00:00`);
+                const last = new Date(`${dates[dates.length - 1]}T00:00:00`);
+                const firstLabel = first.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+                const lastLabel = last.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+                monthHeading.textContent = firstLabel === lastLabel ? firstLabel : `${firstLabel} - ${lastLabel}`;
+
+                // Get today's date formatted as YYYY-MM-DD in Pacific Time
+                const todayStr = new Date().toLocaleDateString('en-CA', {timeZone: 'America/Los_Angeles'});
+
+                const firstDateObj = new Date(dates[0] + 'T00:00:00');
+                const firstDayOfWeek = firstDateObj.getDay();
+
+                for (let i = 0; i < firstDayOfWeek; i++) {
+                    const emptyCell = document.createElement('div');
+                    emptyCell.className = 'day-cell empty-cell';
+                    calendar.appendChild(emptyCell);
+                }
+
+                for (let i = 0; i < dates.length; i++) {
+                    const seconds = durations[i];
+                    let hours = 0;
+                    if (seconds !== null) {
+                        hours = parseFloat((seconds / 3600).toFixed(1));
+                    }
+
+                    const cell = document.createElement('div');
+                    cell.className = 'day-cell';
+                    cell.style.backgroundColor = getColorForHours(hours);
+
+                    if (dates[i] >= todayStr) {
+                        cell.classList.add('forecast-cell');
+                        const forecastText = document.createElement('div');
+                        forecastText.className = 'forecast-label';
+                        forecastText.textContent = dates[i] === todayStr ? 'Today' : 'Forecast';
+                        cell.appendChild(forecastText);
+                    }
+
+                    const dateParts = dates[i].split('-');
+                    const dayNum = parseInt(dateParts[2], 10);
+
+                    const dateLabel = document.createElement('div');
+                    dateLabel.className = 'date-label';
+                    dateLabel.textContent = dayNum;
+
+                    const hoursLabel = document.createElement('div');
+                    hoursLabel.className = 'hours-label';
+                    hoursLabel.textContent = seconds !== null ? `${hours}h` : 'N/A';
+
+                    cell.appendChild(dateLabel);
+                    cell.appendChild(hoursLabel);
+                    calendar.appendChild(cell);
+                }
+            })
+            .catch(error => {
+                document.getElementById('calendar').innerHTML = '<p style="color:red;">Error fetching data. Check console.</p>';
+                console.error('API Fetch Error:', error);
+            });
+    </script>
+</body>
+</html>
