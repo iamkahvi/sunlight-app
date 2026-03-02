@@ -41,6 +41,52 @@
         .month-nav button:hover {
             color: #000;
         }
+        .location-bar {
+            position: relative;
+            margin-bottom: 12px;
+        }
+        .location-label {
+            display: block;
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 4px;
+        }
+        #location-input {
+            width: 100%;
+            box-sizing: border-box;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            padding: 8px 10px;
+            font-size: 14px;
+        }
+        .location-dropdown {
+            position: absolute;
+            top: calc(100% + 4px);
+            left: 0;
+            right: 0;
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+            max-height: 220px;
+            overflow-y: auto;
+            z-index: 20;
+        }
+        .location-option {
+            padding: 8px 10px;
+            cursor: pointer;
+            font-size: 14px;
+            color: #222;
+        }
+        .location-option:hover,
+        .location-option.active {
+            background: #f0f4ff;
+        }
+        .location-empty {
+            padding: 8px 10px;
+            color: #666;
+            font-size: 13px;
+        }
         .calendar-header {
             display: grid;
             grid-template-columns: repeat(7, 1fr);
@@ -118,6 +164,12 @@
             .calendar-grid {
                 gap: 5px;
             }
+            #location-input {
+                font-size: 16px;
+            }
+            .location-option {
+                font-size: 15px;
+            }
             .calendar-header {
                 font-size: 12px;
                 margin-bottom: 6px;
@@ -158,6 +210,21 @@
         <button id="next-month" type="button" aria-label="Next month">&#8594;</button>
     </div>
 
+    <div class="location-bar">
+        <label class="location-label" for="location-input">📍 location</label>
+        <input
+            id="location-input"
+            type="text"
+            placeholder="Search city"
+            role="combobox"
+            aria-expanded="false"
+            aria-controls="location-dropdown"
+            aria-autocomplete="list"
+            autocomplete="off"
+        />
+        <div id="location-dropdown" class="location-dropdown" role="listbox" hidden></div>
+    </div>
+
     <div class="calendar-header">
         <div>sun</div><div>mon</div><div>tue</div><div>wed</div><div>thu</div><div>fri</div><div>sat</div>
     </div>
@@ -165,9 +232,21 @@
         </div>
 
     <script>
-        const lat = 48.4284;
-        const lon = -123.3656;
-        const timezone = 'America/Los_Angeles';
+        const DEFAULT_LOCATION = {
+            name: 'Victoria, British Columbia, Canada',
+            lat: 48.4284,
+            lon: -123.3656,
+            tz: 'America/Vancouver'
+        };
+
+        let currentLocation = { ...DEFAULT_LOCATION };
+        let searchResults = [];
+        let activeResultIndex = -1;
+        let searchDebounce = null;
+        let searchRequestId = 0;
+
+        const locationInput = document.getElementById('location-input');
+        const locationDropdown = document.getElementById('location-dropdown');
 
         function getColorForHours(hours) {
             const maxExpectedHours = 12;
@@ -184,7 +263,7 @@
             return `${y}-${m}-${d}`;
         }
 
-        function getTodayInTimezoneString() {
+        function getTodayInTimezoneString(timezone) {
             return new Date().toLocaleDateString('en-CA', { timeZone: timezone });
         }
 
@@ -194,17 +273,247 @@
             const monthParam = parseInt(params.get('month'), 10);
             const yearParam = parseInt(params.get('year'), 10);
 
-            const month = monthParam >= 1 && monthParam <= 12 ? monthParam : (now.getMonth() + 1);
+            const month = monthParam >= 1 && monthParam <= 12 ? monthParam : now.getMonth() + 1;
             const year = Number.isInteger(yearParam) ? yearParam : now.getFullYear();
 
             return { year, month };
         }
 
-        function updateUrlForMonth(year, month) {
+        function isValidLocation(location) {
+            return Number.isFinite(location.lat)
+                && location.lat >= -90
+                && location.lat <= 90
+                && Number.isFinite(location.lon)
+                && location.lon >= -180
+                && location.lon <= 180
+                && typeof location.tz === 'string'
+                && location.tz.trim().length > 0
+                && typeof location.name === 'string'
+                && location.name.trim().length > 0;
+        }
+
+        function getLocationFromUrl() {
             const params = new URLSearchParams(window.location.search);
-            params.set('year', String(year));
-            params.set('month', String(month));
-            window.location.search = params.toString();
+            const rawLat = parseFloat(params.get('lat'));
+            const rawLon = parseFloat(params.get('lon'));
+            const rawTz = params.get('tz');
+            const rawName = params.get('name');
+
+            const candidate = {
+                lat: rawLat,
+                lon: rawLon,
+                tz: rawTz || '',
+                name: rawName || ''
+            };
+
+            const hasAnyLocationParam = params.has('lat') || params.has('lon') || params.has('tz') || params.has('name');
+
+            if (!hasAnyLocationParam) {
+                return { location: { ...DEFAULT_LOCATION }, needsNormalization: true };
+            }
+
+            if (isValidLocation(candidate)) {
+                return {
+                    location: {
+                        lat: candidate.lat,
+                        lon: candidate.lon,
+                        tz: candidate.tz,
+                        name: candidate.name
+                    },
+                    needsNormalization: false
+                };
+            }
+
+            return { location: { ...DEFAULT_LOCATION }, needsNormalization: true };
+        }
+
+        function updateUrlParams(partial, { replace = false } = {}) {
+            const params = new URLSearchParams(window.location.search);
+
+            Object.entries(partial).forEach(([key, value]) => {
+                if (value === null || value === undefined || value === '') {
+                    params.delete(key);
+                } else {
+                    params.set(key, String(value));
+                }
+            });
+
+            const newUrl = `${window.location.pathname}?${params.toString()}`;
+            if (replace) {
+                history.replaceState(null, '', newUrl);
+            } else {
+                history.pushState(null, '', newUrl);
+            }
+        }
+
+        function syncLocationInput() {
+            locationInput.value = currentLocation.name;
+        }
+
+        function closeDropdown() {
+            locationDropdown.hidden = true;
+            locationInput.setAttribute('aria-expanded', 'false');
+            locationInput.removeAttribute('aria-activedescendant');
+        }
+
+        function openDropdown() {
+            locationDropdown.hidden = false;
+            locationInput.setAttribute('aria-expanded', 'true');
+        }
+
+        function renderSearchResults() {
+            locationDropdown.innerHTML = '';
+
+            if (searchResults.length === 0) {
+                const empty = document.createElement('div');
+                empty.className = 'location-empty';
+                empty.textContent = 'No locations found';
+                locationDropdown.appendChild(empty);
+                openDropdown();
+                return;
+            }
+
+            searchResults.forEach((result, index) => {
+                const option = document.createElement('div');
+                option.className = 'location-option';
+                option.setAttribute('role', 'option');
+                option.setAttribute('id', `location-option-${index}`);
+                option.setAttribute('aria-selected', index === activeResultIndex ? 'true' : 'false');
+                if (index === activeResultIndex) {
+                    option.classList.add('active');
+                }
+                option.textContent = result.name;
+                option.addEventListener('mousedown', (event) => {
+                    event.preventDefault();
+                    selectLocation(result);
+                });
+                locationDropdown.appendChild(option);
+            });
+
+            if (activeResultIndex >= 0) {
+                locationInput.setAttribute('aria-activedescendant', `location-option-${activeResultIndex}`);
+            } else {
+                locationInput.removeAttribute('aria-activedescendant');
+            }
+
+            openDropdown();
+        }
+
+        function formatLocationName(result) {
+            const parts = [result.name, result.admin1, result.country].filter(Boolean);
+            return parts.join(', ');
+        }
+
+        async function searchLocations(query) {
+            const requestId = ++searchRequestId;
+            const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=8&language=en&format=json`;
+            const response = await fetch(url);
+            const data = await response.json();
+
+            if (requestId !== searchRequestId) {
+                return;
+            }
+
+            const results = Array.isArray(data?.results) ? data.results : [];
+            searchResults = results.map((result) => ({
+                name: formatLocationName(result),
+                lat: result.latitude,
+                lon: result.longitude,
+                tz: result.timezone || 'GMT'
+            })).filter(isValidLocation);
+
+            activeResultIndex = -1;
+            renderSearchResults();
+        }
+
+        function queueSearch(query) {
+            if (searchDebounce) {
+                clearTimeout(searchDebounce);
+            }
+
+            searchDebounce = setTimeout(() => {
+                searchLocations(query).catch((error) => {
+                    console.error('Geocoding search failed:', error);
+                    searchResults = [];
+                    activeResultIndex = -1;
+                    renderSearchResults();
+                });
+            }, 250);
+        }
+
+        function selectLocation(location) {
+            currentLocation = { ...location };
+            syncLocationInput();
+            closeDropdown();
+            searchResults = [];
+            activeResultIndex = -1;
+
+            updateUrlParams({
+                lat: currentLocation.lat,
+                lon: currentLocation.lon,
+                tz: currentLocation.tz,
+                name: currentLocation.name
+            });
+
+            loadCalendar().catch(showCalendarError);
+        }
+
+        function handleLocationInput() {
+            const query = locationInput.value.trim();
+
+            if (query.length < 2) {
+                if (searchDebounce) {
+                    clearTimeout(searchDebounce);
+                }
+                searchRequestId += 1;
+                closeDropdown();
+                searchResults = [];
+                activeResultIndex = -1;
+                return;
+            }
+
+            queueSearch(query);
+        }
+
+        function handleLocationInputKeyDown(event) {
+            if (locationDropdown.hidden || searchResults.length === 0) {
+                return;
+            }
+
+            if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                activeResultIndex = Math.min(activeResultIndex + 1, searchResults.length - 1);
+                renderSearchResults();
+            } else if (event.key === 'ArrowUp') {
+                event.preventDefault();
+                activeResultIndex = Math.max(activeResultIndex - 1, 0);
+                renderSearchResults();
+            } else if (event.key === 'Enter') {
+                if (activeResultIndex >= 0 && activeResultIndex < searchResults.length) {
+                    event.preventDefault();
+                    selectLocation(searchResults[activeResultIndex]);
+                }
+            } else if (event.key === 'Escape') {
+                closeDropdown();
+            }
+        }
+
+        function setupLocationPicker() {
+            locationInput.addEventListener('input', handleLocationInput);
+            locationInput.addEventListener('keydown', handleLocationInputKeyDown);
+
+            locationInput.addEventListener('focus', () => {
+                if (searchResults.length > 0) {
+                    renderSearchResults();
+                }
+            });
+
+            locationInput.addEventListener('blur', () => {
+                setTimeout(() => {
+                    closeDropdown();
+                    syncLocationInput();
+                }, 100);
+            });
         }
 
         function renderCalendar(year, month, sunshineByDay, forecastDaySet, todayStr) {
@@ -267,7 +576,7 @@
             const monthEnd = new Date(year, month, 0);
             const monthStartStr = formatDate(monthStart);
             const monthEndStr = formatDate(monthEnd);
-            const todayStr = getTodayInTimezoneString();
+            const todayStr = getTodayInTimezoneString(currentLocation.tz);
 
             const monthLabel = monthStart.toLocaleString('en-US', { month: 'short' }).toLowerCase();
             document.getElementById('month-title').textContent = `sunlight in ${monthLabel} ${year}`;
@@ -277,7 +586,7 @@
 
             if (monthStartStr <= todayStr) {
                 const archiveEndStr = monthEndStr < todayStr ? monthEndStr : todayStr;
-                const archiveUrl = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}&daily=sunshine_duration&start_date=${monthStartStr}&end_date=${archiveEndStr}&timezone=${encodeURIComponent(timezone)}`;
+                const archiveUrl = `https://archive-api.open-meteo.com/v1/archive?latitude=${currentLocation.lat}&longitude=${currentLocation.lon}&daily=sunshine_duration&start_date=${monthStartStr}&end_date=${archiveEndStr}&timezone=${encodeURIComponent(currentLocation.tz)}`;
                 const archiveResponse = await fetch(archiveUrl);
                 const archiveData = await archiveResponse.json();
 
@@ -289,7 +598,7 @@
                 }
             }
 
-            const forecastUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=sunshine_duration&forecast_days=7&timezone=${encodeURIComponent(timezone)}`;
+            const forecastUrl = `https://api.open-meteo.com/v1/forecast?latitude=${currentLocation.lat}&longitude=${currentLocation.lon}&daily=sunshine_duration&forecast_days=7&timezone=${encodeURIComponent(currentLocation.tz)}`;
             const forecastResponse = await fetch(forecastUrl);
             const forecastData = await forecastResponse.json();
 
@@ -308,26 +617,55 @@
             renderCalendar(year, month, sunshineByDay, forecastDaySet, todayStr);
         }
 
-        function setupMonthButtons() {
-            const { year, month } = getSelectedYearMonth();
+        function showCalendarError(error) {
+            document.getElementById('calendar').innerHTML = '<p style="color:red;">Error fetching data. Check console.</p>';
+            console.error('API Fetch Error:', error);
+        }
 
+        function setupMonthButtons() {
             document.getElementById('prev-month').addEventListener('click', () => {
+                const { year, month } = getSelectedYearMonth();
                 const prev = new Date(year, month - 2, 1);
-                updateUrlForMonth(prev.getFullYear(), prev.getMonth() + 1);
+                updateUrlParams({ year: prev.getFullYear(), month: prev.getMonth() + 1 });
+                loadCalendar().catch(showCalendarError);
             });
 
             document.getElementById('next-month').addEventListener('click', () => {
+                const { year, month } = getSelectedYearMonth();
                 const next = new Date(year, month, 1);
-                updateUrlForMonth(next.getFullYear(), next.getMonth() + 1);
+                updateUrlParams({ year: next.getFullYear(), month: next.getMonth() + 1 });
+                loadCalendar().catch(showCalendarError);
             });
         }
 
-        setupMonthButtons();
+        function syncStateFromUrl({ normalize = false } = {}) {
+            const { location, needsNormalization } = getLocationFromUrl();
+            currentLocation = { ...location };
+            syncLocationInput();
 
-        loadCalendar().catch(error => {
-            document.getElementById('calendar').innerHTML = '<p style="color:red;">Error fetching data. Check console.</p>';
-            console.error('API Fetch Error:', error);
-        });
+            if (normalize || needsNormalization) {
+                updateUrlParams({
+                    lat: currentLocation.lat,
+                    lon: currentLocation.lon,
+                    tz: currentLocation.tz,
+                    name: currentLocation.name
+                }, { replace: true });
+            }
+        }
+
+        function initialize() {
+            setupMonthButtons();
+            setupLocationPicker();
+            syncStateFromUrl({ normalize: true });
+            loadCalendar().catch(showCalendarError);
+
+            window.addEventListener('popstate', () => {
+                syncStateFromUrl();
+                loadCalendar().catch(showCalendarError);
+            });
+        }
+
+        initialize();
     </script>
 </body>
 </html>
