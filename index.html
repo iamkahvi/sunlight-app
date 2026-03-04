@@ -626,9 +626,8 @@
             const todayStr = getTodayInTimezoneString(currentLocation.tz);
 
             const monthLabel = monthStart.toLocaleString('en-US', { month: 'short' }).toLowerCase();
-            const locationLabel = currentLocation.name.split(',')[0].trim().toLowerCase();
             document.getElementById('month-title').textContent = `sunlight in ${monthLabel} ${year}`;
-            document.title = `sunlight · ${locationLabel}`;
+            document.title = `sunlight hours - ${currentLocation.name.toLowerCase()}`;
 
             const sunshineByDay = {};
             const forecastDaySet = new Set();
