@@ -16,6 +16,8 @@ Simple static app that shows sunrise/sunset and daylight hours in a calendar vie
 
 Open `index.html` in your browser.
 
-## Screenshot
+## Screenshots
 
 ![Sunlight app screenshot](docs/screenshot.png)
+
+![Sunlight app screenshot 2](docs/screenshot-2.png)
