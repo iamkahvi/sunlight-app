@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>sunlight hours - victoria, BC</title>
+    <title>sunlight hours</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <style>
         body {
@@ -626,7 +626,9 @@
             const todayStr = getTodayInTimezoneString(currentLocation.tz);
 
             const monthLabel = monthStart.toLocaleString('en-US', { month: 'short' }).toLowerCase();
-            document.getElementById('month-title').textContent = `sunlight in ${monthLabel} ${year}`;
+            const locationLabel = currentLocation.name.split(',')[0].trim().toLowerCase();
+            document.getElementById('month-title').textContent = `sunlight in ${locationLabel} · ${monthLabel} ${year}`;
+            document.title = `sunlight · ${locationLabel}`;
 
             const sunshineByDay = {};
             const forecastDaySet = new Set();
