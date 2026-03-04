@@ -43,6 +43,7 @@
         }
         .location-bar {
             position: relative;
+            margin-top: 18px;
             margin-bottom: 12px;
         }
         .location-label {
@@ -57,7 +58,7 @@
             border: 1px solid #ccc;
             border-radius: 8px;
             padding: 8px 10px;
-            font-size: 14px;
+            font-size: 16px;
         }
         .location-dropdown {
             position: absolute;
@@ -100,6 +101,24 @@
             display: grid;
             grid-template-columns: repeat(7, 1fr);
             gap: 10px;
+        }
+        .calendar-spinner {
+            grid-column: 1 / -1;
+            display: flex;
+            justify-content: center;
+            padding: 40px 0;
+        }
+        .calendar-spinner::after {
+            content: '';
+            width: 32px;
+            height: 32px;
+            border: 3px solid #ddd;
+            border-top-color: #888;
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
         }
         .day-cell {
             position: relative;
@@ -165,7 +184,7 @@
                 gap: 5px;
             }
             #location-input {
-                font-size: 16px;
+                font-size: 14px;
             }
             .location-option {
                 font-size: 15px;
@@ -210,6 +229,12 @@
         <button id="next-month" type="button" aria-label="Next month">&#8594;</button>
     </div>
 
+    <div class="calendar-header">
+        <div>sun</div><div>mon</div><div>tue</div><div>wed</div><div>thu</div><div>fri</div><div>sat</div>
+    </div>
+    <div class="calendar-grid" id="calendar">
+    </div>
+
     <div class="location-bar">
         <label class="location-label" for="location-input">📍 location</label>
         <input
@@ -225,12 +250,6 @@
         <div id="location-dropdown" class="location-dropdown" role="listbox" hidden></div>
     </div>
 
-    <div class="calendar-header">
-        <div>sun</div><div>mon</div><div>tue</div><div>wed</div><div>thu</div><div>fri</div><div>sat</div>
-    </div>
-    <div class="calendar-grid" id="calendar">
-        </div>
-
     <script>
         const DEFAULT_LOCATION = {
             name: 'Victoria, British Columbia, Canada',
@@ -238,6 +257,23 @@
             lon: -123.3656,
             tz: 'America/Vancouver'
         };
+
+        function hexToRgb(hex) {
+            const clean = hex.replace('#', '');
+            const normalized = clean.length === 3
+                ? clean.split('').map((c) => c + c).join('')
+                : clean;
+            const value = parseInt(normalized, 16);
+            return {
+                r: (value >> 16) & 255,
+                g: (value >> 8) & 255,
+                b: value & 255
+            };
+        }
+
+        const PALETTE = { start: hexToRgb('#ffea00'), end: hexToRgb('#778da9') };
+        const COLOR_MIN_HOURS = 0;
+        const COLOR_MAX_HOURS = 10;
 
         let currentLocation = { ...DEFAULT_LOCATION };
         let searchResults = [];
@@ -248,12 +284,39 @@
         const locationInput = document.getElementById('location-input');
         const locationDropdown = document.getElementById('location-dropdown');
 
+        function clamp(value, min, max) {
+            return Math.min(Math.max(value, min), max);
+        }
+
+        function mixRgb(colorA, colorB, t) {
+            return {
+                r: Math.round(colorA.r + ((colorB.r - colorA.r) * t)),
+                g: Math.round(colorA.g + ((colorB.g - colorA.g) * t)),
+                b: Math.round(colorA.b + ((colorB.b - colorA.b) * t))
+            };
+        }
+
+        function rgbToString(color) {
+            return `rgb(${color.r}, ${color.g}, ${color.b})`;
+        }
+
+        function getGradientColor(palette, t) {
+            if (!palette.middle) {
+                return rgbToString(mixRgb(palette.start, palette.end, t));
+            }
+
+            const middleStop = clamp(Number.isFinite(palette.middleStop) ? palette.middleStop : 0.5, 0.01, 0.99);
+
+            if (t <= middleStop) {
+                return rgbToString(mixRgb(palette.start, palette.middle, t / middleStop));
+            }
+
+            return rgbToString(mixRgb(palette.middle, palette.end, (t - middleStop) / (1 - middleStop)));
+        }
+
         function getColorForHours(hours) {
-            const maxExpectedHours = 12;
-            const normalized = Math.min(Math.max(hours / maxExpectedHours, 0), 1);
-            const hue = 210 - (normalized * 180);
-            const saturation = 40 + (normalized * 50);
-            return `hsl(${hue}, ${saturation}%, 55%)`;
+            const t = clamp((hours - COLOR_MIN_HOURS) / (COLOR_MAX_HOURS - COLOR_MIN_HOURS), 0, 1);
+            return getGradientColor(PALETTE, 1 - t);
         }
 
         function formatDate(date) {
@@ -270,8 +333,8 @@
         function getSelectedYearMonth() {
             const params = new URLSearchParams(window.location.search);
             const now = new Date();
-            const monthParam = parseInt(params.get('month'), 10);
-            const yearParam = parseInt(params.get('year'), 10);
+            const monthParam = parseInt(params.get('m'), 10);
+            const yearParam = parseInt(params.get('y'), 10);
 
             const month = monthParam >= 1 && monthParam <= 12 ? monthParam : now.getMonth() + 1;
             const year = Number.isInteger(yearParam) ? yearParam : now.getFullYear();
@@ -292,12 +355,11 @@
                 && location.name.trim().length > 0;
         }
 
-        function getLocationFromUrl() {
-            const params = new URLSearchParams(window.location.search);
+        function getLocationFromUrl(params = new URLSearchParams(window.location.search)) {
             const rawLat = parseFloat(params.get('lat'));
             const rawLon = parseFloat(params.get('lon'));
             const rawTz = params.get('tz');
-            const rawName = params.get('name');
+            const rawName = params.get('n');
 
             const candidate = {
                 lat: rawLat,
@@ -306,7 +368,7 @@
                 name: rawName || ''
             };
 
-            const hasAnyLocationParam = params.has('lat') || params.has('lon') || params.has('tz') || params.has('name');
+            const hasAnyLocationParam = params.has('lat') || params.has('lon') || params.has('tz') || params.has('n');
 
             if (!hasAnyLocationParam) {
                 return { location: { ...DEFAULT_LOCATION }, needsNormalization: true };
@@ -452,7 +514,7 @@
                 lat: currentLocation.lat,
                 lon: currentLocation.lon,
                 tz: currentLocation.tz,
-                name: currentLocation.name
+                n: currentLocation.name
             });
 
             loadCalendar().catch(showCalendarError);
@@ -571,6 +633,7 @@
         }
 
         async function loadCalendar() {
+            document.getElementById('calendar').innerHTML = '<div class="calendar-spinner"></div>';
             const { year, month } = getSelectedYearMonth();
             const monthStart = new Date(year, month - 1, 1);
             const monthEnd = new Date(year, month, 0);
@@ -626,30 +689,50 @@
             document.getElementById('prev-month').addEventListener('click', () => {
                 const { year, month } = getSelectedYearMonth();
                 const prev = new Date(year, month - 2, 1);
-                updateUrlParams({ year: prev.getFullYear(), month: prev.getMonth() + 1 });
+                updateUrlParams({ y: prev.getFullYear(), m: prev.getMonth() + 1 });
                 loadCalendar().catch(showCalendarError);
             });
 
             document.getElementById('next-month').addEventListener('click', () => {
                 const { year, month } = getSelectedYearMonth();
                 const next = new Date(year, month, 1);
-                updateUrlParams({ year: next.getFullYear(), month: next.getMonth() + 1 });
+                updateUrlParams({ y: next.getFullYear(), m: next.getMonth() + 1 });
                 loadCalendar().catch(showCalendarError);
             });
         }
 
         function syncStateFromUrl({ normalize = false } = {}) {
-            const { location, needsNormalization } = getLocationFromUrl();
+            const urlParams = new URLSearchParams(window.location.search);
+            const { location, needsNormalization: locationNeedsNormalization } = getLocationFromUrl(urlParams);
+            const paletteResult = getPaletteFromUrl(urlParams);
+            const colorScaleResult = getColorScaleFromUrl(urlParams);
+
             currentLocation = { ...location };
+            currentPalette = paletteResult.palette;
+            currentColorMinHours = colorScaleResult.minHours;
+            currentColorMaxHours = colorScaleResult.maxHours;
             syncLocationInput();
 
-            if (normalize || needsNormalization) {
-                updateUrlParams({
+            const needsUrlUpdate = normalize || locationNeedsNormalization
+                || paletteResult.needsNormalization || colorScaleResult.needsNormalization;
+
+            if (needsUrlUpdate) {
+                const params = {
                     lat: currentLocation.lat,
                     lon: currentLocation.lon,
                     tz: currentLocation.tz,
-                    name: currentLocation.name
-                }, { replace: true });
+                    n: currentLocation.name
+                };
+
+                if (paletteResult.present) {
+                    params.pal = currentPalette;
+                }
+                if (colorScaleResult.present) {
+                    params.cmin = currentColorMinHours;
+                    params.cmax = currentColorMaxHours;
+                }
+
+                updateUrlParams(params, { replace: true });
             }
         }
 

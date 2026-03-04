@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sunshine Hours - Past 30 Days</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: sans-serif;
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 10px;
+        }
+        .chart-container {
+            width: 100%;
+            margin-bottom: 30px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            border: 1px solid #ccc;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f4f4f4;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>Sunshine Hours (Past 30 Days)</h2>
+    
+    <div class="chart-container">
+        <canvas id="sunshineChart"></canvas>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Sunshine (Hours)</th>
+            </tr>
+        </thead>
+        <tbody id="data-body">
+            <tr><td colspan="2">Loading API data...</td></tr>
+        </tbody>
+    </table>
+
+    <script>
+        const lat = 48.4284;
+        const lon = -123.3656;
+        const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=sunshine_duration&past_days=30&forecast_days=0&timezone=America%2FLos_Angeles`;
+
+        fetch(url)
+            .then(response => response.json())
+            .then(data => {
+                const tbody = document.getElementById('data-body');
+                tbody.innerHTML = ''; 
+
+                const dates = data.daily.time;
+                const durations = data.daily.sunshine_duration;
+                const hoursArray = [];
+                const bgColors = [];
+                const borderColors = [];
+
+                for (let i = 0; i < dates.length; i++) {
+                    const tr = document.createElement('tr');
+                    const tdDate = document.createElement('td');
+                    const tdHours = document.createElement('td');
+                    
+                    tdDate.textContent = dates[i];
+                    
+                    const seconds = durations[i];
+                    let hours = 0;
+                    
+                    if (seconds !== null) {
+                        hours = parseFloat((seconds / 3600).toFixed(2));
+                        tdHours.textContent = hours;
+                    } else {
+                        tdHours.textContent = "No data";
+                    }
+
+                    hoursArray.push(hours);
+
+                    tr.appendChild(tdDate);
+                    tr.appendChild(tdHours);
+                    tbody.appendChild(tr);
+
+                    // Determine day of the week (append T00:00:00 to avoid timezone shifts)
+                    const dateObj = new Date(dates[i] + 'T00:00:00');
+                    const dayOfWeek = dateObj.getDay(); 
+                    
+                    // 0 = Sunday, 5 = Friday, 6 = Saturday
+                    if (dayOfWeek === 0 || dayOfWeek === 5 || dayOfWeek === 6) {
+                        bgColors.push('rgba(255, 159, 64, 0.8)'); // Orange
+                        borderColors.push('rgba(255, 159, 64, 1)');
+                    } else {
+                        bgColors.push('rgba(54, 162, 235, 0.4)'); // Light Blue
+                        borderColors.push('rgba(54, 162, 235, 1)');
+                    }
+                }
+
+                const ctx = document.getElementById('sunshineChart').getContext('2d');
+                new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: dates,
+                        datasets: [{
+                            label: 'Hours of Sunlight',
+                            data: hoursArray,
+                            backgroundColor: bgColors,
+                            borderColor: borderColors,
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                max: 16, 
+                                title: {
+                                    display: true,
+                                    text: 'Hours'
+                                }
+                            }
+                        }
+                    }
+                });
+            })
+            .catch(error => {
+                document.getElementById('data-body').innerHTML = '<tr><td colspan="2" style="color:red;">Error fetching data. Check console.</td></tr>';
+                console.error('API Fetch Error:', error);
+            });
+    </script>
+</body>
+</html>
