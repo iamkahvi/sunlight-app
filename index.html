@@ -136,8 +136,16 @@
             background-color: transparent;
             box-shadow: none;
         }
-        .forecast-cell {
-            border: 2px dashed #444;
+        .forecast-cell:not(.today-cell)::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: rgba(255, 255, 255, 0.4);
+            border-radius: inherit;
+            pointer-events: none;
+        }
+        .today-cell {
+            border: 2px solid #000;
         }
         .date-label {
             position: absolute;
@@ -148,13 +156,6 @@
         }
         .hours-label {
             font-size: 1.2rem;
-        }
-        .forecast-label {
-            position: absolute;
-            bottom: 5px;
-            font-size: 10px;
-            text-transform: uppercase;
-            opacity: 0.85;
         }
 
         @media (max-width: 600px) {
@@ -194,10 +195,6 @@
             .hours-label {
                 font-size: 0.9rem;
             }
-            .forecast-label {
-                font-size: 8px;
-                bottom: 3px;
-            }
         }
 
         @media (max-width: 420px) {
@@ -207,9 +204,6 @@
             }
             .hours-label {
                 font-size: 0.78rem;
-            }
-            .forecast-label {
-                display: none;
             }
         }
     </style>
@@ -603,12 +597,9 @@
 
                 if (isForecast) {
                     cell.classList.add('forecast-cell');
-                    if (dateStr === todayStr) {
-                        const todayText = document.createElement('div');
-                        todayText.className = 'forecast-label';
-                        todayText.textContent = 'Today';
-                        cell.appendChild(todayText);
-                    }
+                }
+                if (dateStr === todayStr) {
+                    cell.classList.add('today-cell');
                 }
 
                 const dateLabel = document.createElement('div');
