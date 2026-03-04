@@ -703,36 +703,18 @@
 
         function syncStateFromUrl({ normalize = false } = {}) {
             const urlParams = new URLSearchParams(window.location.search);
-            const { location, needsNormalization: locationNeedsNormalization } = getLocationFromUrl(urlParams);
-            const paletteResult = getPaletteFromUrl(urlParams);
-            const colorScaleResult = getColorScaleFromUrl(urlParams);
+            const { location, needsNormalization } = getLocationFromUrl(urlParams);
 
             currentLocation = { ...location };
-            currentPalette = paletteResult.palette;
-            currentColorMinHours = colorScaleResult.minHours;
-            currentColorMaxHours = colorScaleResult.maxHours;
             syncLocationInput();
 
-            const needsUrlUpdate = normalize || locationNeedsNormalization
-                || paletteResult.needsNormalization || colorScaleResult.needsNormalization;
-
-            if (needsUrlUpdate) {
-                const params = {
+            if (normalize || needsNormalization) {
+                updateUrlParams({
                     lat: currentLocation.lat,
                     lon: currentLocation.lon,
                     tz: currentLocation.tz,
                     n: currentLocation.name
-                };
-
-                if (paletteResult.present) {
-                    params.pal = currentPalette;
-                }
-                if (colorScaleResult.present) {
-                    params.cmin = currentColorMinHours;
-                    params.cmax = currentColorMaxHours;
-                }
-
-                updateUrlParams(params, { replace: true });
+                }, { replace: true });
             }
         }
 
